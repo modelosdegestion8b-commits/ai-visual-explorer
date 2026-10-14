@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Visual Explorer</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css"> 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <header class="top-bar">
+        <div class="logo">
+            <h1>AI VISUAL EXPLORER</h1>
+            <span class="badge" data-i18n="badge">👁️ Impulsado por NVIDIA / Tavily</span>
+        </div>
+        <div class="language-selector">
+            🌐 <select id="idiomaSelect">
+                <option value="es">Español</option>
+                <option value="en">English</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="zh">中文</option>
+            </select>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="control-panel">
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="imagenInput" accept="image/*" capture="environment" hidden>
+                
+                <div class="upload-content" id="uploadContent">
+                    <span class="icon-camera">📷</span>
+                    <p data-i18n="dragText">Arrastra tu foto o</p>
+                    <button class="upload-btn" id="uploadBtnAux" data-i18n="btnUpload">Tomar Foto / Subir</button>
+                </div>
+                
+                <img id="imagenPreview" alt="Vista previa" style="display: none;">
+                <div class="location-pill" id="ubicacionPill" style="display: none;">
+                    📍 <span id="ubicacionTexto" data-i18n="locBuscando">Buscando ubicación...</span>
+                </div>
+            </div>
+
+            <div class="mode-selector">
+                <div class="mode-card active" data-modo="Educativo">
+                    <span class="emoji">🔬</span>
+                    <span data-i18n="modoEdu">Educativo</span>
+                </div>
+                <div class="mode-card" data-modo="Turístico">
+                    <span class="emoji">🗺️</span>
+                    <span data-i18n="modoTur">Turístico</span>
+                </div>
+                <div class="mode-card" data-modo="Explorador">
+                    <span class="emoji">🧭</span>
+                    <span data-i18n="modoExp">Explorador</span>
+                </div>
+            </div>
+            
+            <button id="analizarBtn" class="primary-btn" data-i18n="btnAnalizar">Analizar Entorno</button>
+        </section>
+
+        <section class="result-section">
+            <div class="result-card" id="resultadoCard" style="display: none;">
+                <h2 data-i18n="resTitulo">Resultado del Análisis</h2>
+                <div id="resultadoContenido" class="markdown-content"></div>
+            </div>
+        </section>
+
+        <section class="history-section">
+            <h3 data-i18n="pasaporteTit">📔 Mi Pasaporte de Descubrimientos</h3>
+            <div class="history-grid" id="historialGrid"></div>
+            <button id="limpiarHistorialBtn" class="text-btn" data-i18n="btnBorrar">Borrar Historial</button>
+        </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
