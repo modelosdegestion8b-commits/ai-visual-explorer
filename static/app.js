@@ -182,10 +182,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
             
             const data = await response.json();
-            const textoIA = data.ficha_final; 
-            const diagnosticoBreve = data.diagnostico_interno; 
+            
+            
+            const textoIA = data.ficha_final || "⚠️ **La Inteligencia Artificial no pudo generar un reporte a tiempo.** Por favor, intenta de nuevo."; 
+            const diagnosticoBreve = data.diagnostico_interno || "Análisis fallido"; 
 
-            resultadoContenido.innerHTML = marked.parse(textoIA);
+            
+            resultadoContenido.innerHTML = marked.parse(String(textoIA));
             resultadoCard.style.display = 'block';
 
             guardarEnPasaporte(modoSeleccionado, textoIA, diagnosticoBreve);
