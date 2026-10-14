@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Referencias UI ---
+    // --- DOM Elements Reference ---
     const uploadArea = document.getElementById('uploadArea');
     const imagenInput = document.getElementById('imagenInput');
     const uploadContent = document.getElementById('uploadContent');
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const limpiarHistorialBtn = document.getElementById('limpiarHistorialBtn');
     const uploadBtnAux = document.getElementById('uploadBtnAux');
 
-    // --- DICCIONARIO DE TRADUCCIÓN UI ---
+    // --- UI Translation Dictionary ---
     const uiTranslations = {
         es: {
             badge: "👁️ Impulsado por NVIDIA / Tavily", dragText: "Arrastra tu foto o", btnUpload: "Tomar Foto / Subir",
@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Función que cambia los textos al vuelo
+    // --- Dynamic UI Translation Handler ---
     function actualizarIdiomaUI() {
         const lang = idiomaSelect.value;
         const textos = uiTranslations[lang];
@@ -76,20 +76,20 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         
-        // Actualizar el estado de texto de botones y variables locales
+        // Update button states and dynamically refresh history timestamps
         if (!analizarBtn.disabled) analizarBtn.textContent = textos.btnAnalizar;
-        renderizarHistorial(); // Refrescar el historial para traducir la fecha
+        renderizarHistorial(); 
     }
 
     idiomaSelect.addEventListener('change', actualizarIdiomaUI);
 
-    // --- Estado de la App ---
+    // --- Application State ---
     let currentFile = null;
     let modoSeleccionado = 'Educativo';
     let lat = null;
     let lon = null;
 
-    // --- Geolocalización inicial ---
+    // --- Initial Geolocation Setup ---
     if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(pos => {
             lat = pos.coords.latitude;
@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Lógica del Área de Subida ---
+    // --- File Upload Logic ---
     const abrirSelector = () => imagenInput.click();
     
     uploadArea.addEventListener('click', (e) => {
@@ -144,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsDataURL(file);
     }
 
-    // --- Lógica Selector de Modos ---
+    // --- Mode Selector Logic ---
     modeCards.forEach(card => {
         card.addEventListener('click', () => {
             modeCards.forEach(c => c.classList.remove('active'));
@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Lógica de Análisis ---
+    // --- Analysis & API Interaction Logic ---
     analizarBtn.addEventListener('click', async () => {
         const textos = uiTranslations[idiomaSelect.value];
         if (!currentFile) {
@@ -179,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: formData 
             });
 
-            if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
             
             const data = await response.json();
             const textoIA = data.ficha_final; 
@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
             guardarEnPasaporte(modoSeleccionado, textoIA, diagnosticoBreve);
 
         } catch (error) {
-            resultadoContenido.innerHTML = `<p style="color: #ff5e5e;">Error de conexión: ${error.message}</p>`;
+            resultadoContenido.innerHTML = `<p style="color: #ff5e5e;">Connection Error: ${error.message}</p>`;
             resultadoCard.style.display = 'block';
         } finally {
             analizarBtn.disabled = false;
@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Lógica del Pasaporte ---
+    // --- Discovery Passport (History) Logic ---
     function guardarEnPasaporte(modo, texto, diagnosticoBreve) {
         if (!texto) return;
         const fecha = new Date().toLocaleDateString();
@@ -224,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.className = 'history-item';
             
-            // Traducir el título dinámicamente ("Has descubierto...")
+            // Dynamic discovery title generation based on language
             const tituloDinamico = item.diagnosticoBreve 
                 ? `${textos.descubierto}: ${item.diagnosticoBreve}` 
                 : "✨ Descubrimiento...";
@@ -250,6 +250,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Inicializar idioma y pasaporte
+    // --- Initialize Application ---
     actualizarIdiomaUI();
 });
