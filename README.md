@@ -10,7 +10,7 @@ Users can snap or upload photos of plants, landscapes, or landmarks, and receive
 
 ### 🔗 Links
 - **Live Demo**: https://ai-visual-explorer.onrender.com
-- **Video Pitch**: [PEGAR_AQUI_TU_ENLACE_DE_YOUTUBE]
+- **Video Pitch**: (https://youtu.be/ei9oo46DSNw)
 
 ## 🧠 Nebius & NVIDIA Integration (Hackathon Requirement)
 
