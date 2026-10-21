@@ -20,7 +20,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 nebius_client = OpenAI(
     base_url="https://api.tokenfactory.nebius.com/v1",
     api_key=os.environ.get("NEBIUS_API_KEY"),
-    timeout=45.0  # Stability patch: Prevents the server from hanging indefinitely
+    timeout=75.0  # Stability patch: Prevents the server from hanging indefinitely
 )
 
 def get_tavily_context(query: str) -> str:
@@ -34,7 +34,7 @@ def get_tavily_context(query: str) -> str:
         "api_key": api_key,
         "query": query,
         "search_depth": "basic",
-        "max_results": 3
+        "max_results": 1
     }
     try:
         # Added timeout to prevent external API bottlenecks
@@ -95,7 +95,7 @@ async def analyze_environment(
                 }
             ],
             temperature=0.1,
-            max_tokens=60
+            max_tokens=100
         )
         raw_diagnosis = vision_response.choices[0].message.content.strip()
     except Exception as e:
