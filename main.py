@@ -84,7 +84,7 @@ async def analyze_environment(
     
     try:
         vision_response = nebius_client.chat.completions.create(
-            model="NVIDIA/Nemotron 3.5 Super VL",
+            model="nvidia/nemotron-3.5-super-vl",
             messages=[
                 {
                     "role": "user",
@@ -152,7 +152,7 @@ async def analyze_environment(
 
     try:
         text_response = nebius_client.chat.completions.create(
-            model="NVIDIA/Nemotron-3.5-Lightning",
+            model="nvidia/nemotron-3.5-lightning",
             messages=[
                 {"role": "system", "content": agent_persona},
                 {"role": "user", "content": final_prompt}
