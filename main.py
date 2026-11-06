@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import requests
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse
@@ -20,8 +21,19 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 nebius_client = OpenAI(
     base_url="https://api.tokenfactory.nebius.com/v1",
     api_key=os.environ.get("NEBIUS_API_KEY"),
-    timeout=75.0  # Stability patch: Prevents the server from hanging indefinitely
+    timeout=75.0
 )
+
+def extract_clean_text(message) -> str:
+    """Safely extracts text from reasoning models, handling None content and <think> tags."""
+    content = getattr(message, "content", None)
+    if not content:
+        # Fallback if the model placed text inside reasoning_content
+        content = getattr(message, "reasoning_content", "") or ""
+    
+    # Remove <think>...</think> blocks if the reasoning model includes them in the output
+    cleaned = re.sub(r"<think>.*?</think>", "", str(content), flags=re.DOTALL).strip()
+    return cleaned if cleaned else str(content).strip()
 
 def get_tavily_context(query: str) -> str:
     """Retrieves real-time context from the Tavily search API."""
@@ -37,7 +49,6 @@ def get_tavily_context(query: str) -> str:
         "max_results": 1
     }
     try:
-        # Added timeout to prevent external API bottlenecks
         response = requests.post(url, json=payload, timeout=10.0)
         response.raise_for_status()
         results = response.json().get("results", [])
@@ -72,7 +83,7 @@ async def analyze_environment(
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to process the uploaded image.")
 
-    # 2. Vision Processing
+    # 2. Vision Processing (nvidia/Nemotron-3.5-Super-VL)
     vision_prompt = (
         "Eres un experto en análisis visual. Tu tarea es identificar el sujeto principal de esta imagen. "
         "REGLA 1: Si la imagen está demasiado borrosa, oscura, cortada, o no hay un sujeto claramente identificable, "
@@ -95,13 +106,13 @@ async def analyze_environment(
                 }
             ],
             temperature=0.1,
-            max_tokens=100
+            max_tokens=600  # Increased to allow internal reasoning tokens + final answer
         )
-        raw_diagnosis = vision_response.choices[0].message.content.strip()
+        raw_diagnosis = extract_clean_text(vision_response.choices[0].message)
+        if not raw_diagnosis:
+            raw_diagnosis = "IMAGEN_NO_RECONOCIDA"
     except Exception as e:
-        # Esto imprimirá el error real en tu terminal local o en Render Logs
         print(f"\n🚨 ERROR REAL DEL MODELO VISUAL: {str(e)}\n")
-        # Esto enviará el error real al frontend para que no tengas que adivinar
         raise HTTPException(status_code=500, detail=f"Error de API Visual: {str(e)}")
 
     # Stability Patch: Fast circuit breaker for unrecognized images
@@ -153,16 +164,28 @@ async def analyze_environment(
     )
 
     try:
-        text_response = nebius_client.chat.completions.create(
-            model="nvidia/Nemotron-3_5-Lightning",
-            messages=[
-                {"role": "system", "content": agent_persona},
-                {"role": "user", "content": final_prompt}
-            ],
-            temperature=0.4,
-            max_tokens=800
-        )
-        final_report = text_response.choices[0].message.content
+        try:
+            text_response = nebius_client.chat.completions.create(
+                model="nvidia/Nemotron-3.5-Lightning",
+                messages=[
+                    {"role": "system", "content": agent_persona},
+                    {"role": "user", "content": final_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=1500
+            )
+        except Exception:
+            # Automatic fallback to Super-VL if Lightning model ID differs
+            text_response = nebius_client.chat.completions.create(
+                model="nvidia/Nemotron-3.5-Super-VL",
+                messages=[
+                    {"role": "system", "content": agent_persona},
+                    {"role": "user", "content": final_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=1500
+            )
+        final_report = extract_clean_text(text_response.choices[0].message)
     except Exception as e:
         print(f"\n🚨 ERROR REAL DEL MODELO DE TEXTO: {str(e)}\n")
         raise HTTPException(status_code=500, detail=f"Error de API Texto: {str(e)}")
