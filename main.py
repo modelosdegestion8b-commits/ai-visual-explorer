@@ -84,7 +84,7 @@ async def analyze_environment(
     
     try:
         vision_response = nebius_client.chat.completions.create(
-            model="openbmb/MiniCPM-V-4_5",
+            model="Nemotron 3.5 Super VL",
             messages=[
                 {
                     "role": "user",
@@ -152,7 +152,7 @@ async def analyze_environment(
 
     try:
         text_response = nebius_client.chat.completions.create(
-            model="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+            model="Nemotron-3-Super-120b-a12b",
             messages=[
                 {"role": "system", "content": agent_persona},
                 {"role": "user", "content": final_prompt}
