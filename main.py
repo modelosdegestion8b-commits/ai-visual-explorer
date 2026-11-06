@@ -72,7 +72,7 @@ async def analyze_environment(
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to process the uploaded image.")
 
-    # 2. Vision Processing (openbmb/MiniCPM-V-4_5)
+    # 2. Vision Processing
     vision_prompt = (
         "Eres un experto en análisis visual. Tu tarea es identificar el sujeto principal de esta imagen. "
         "REGLA 1: Si la imagen está demasiado borrosa, oscura, cortada, o no hay un sujeto claramente identificable, "
@@ -84,7 +84,7 @@ async def analyze_environment(
     
     try:
         vision_response = nebius_client.chat.completions.create(
-            model="nvidia/nemotron-3.5-super-vl",
+            model="nvidia/Nemotron-3.5-Super-VL",
             messages=[
                 {
                     "role": "user",
@@ -99,10 +99,12 @@ async def analyze_environment(
         )
         raw_diagnosis = vision_response.choices[0].message.content.strip()
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Vision model timeout or internal error.")
+        # Esto imprimirá el error real en tu terminal local o en Render Logs
+        print(f"\n🚨 ERROR REAL DEL MODELO VISUAL: {str(e)}\n")
+        # Esto enviará el error real al frontend para que no tengas que adivinar
+        raise HTTPException(status_code=500, detail=f"Error de API Visual: {str(e)}")
 
     # Stability Patch: Fast circuit breaker for unrecognized images
-    # Prevents unnecessary calls to Tavily and the text LLM, saving time and preventing hallucination timeouts.
     if "IMAGEN_NO_RECONOCIDA" in raw_diagnosis or "no reconocida" in raw_diagnosis.lower():
         fallback_messages = {
             "es": "¡Vaya! 😅 No logro distinguir bien el sujeto principal. ¿Podrías intentar con una foto más clara?",
@@ -120,7 +122,7 @@ async def analyze_environment(
     tavily_query = f"{raw_diagnosis} en {ubicacion} contexto actual, historia o noticias"
     web_context = get_tavily_context(tavily_query)
 
-    # 4. LLM Synthesis (nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B)
+    # 4. LLM Synthesis
     mode_prompts = {
         "educativo": (
             "Eres un científico y educador riguroso pero accesible. "
@@ -152,7 +154,7 @@ async def analyze_environment(
 
     try:
         text_response = nebius_client.chat.completions.create(
-            model="nvidia/nemotron-3.5-lightning",
+            model="nvidia/Nemotron-3_5-Lightning",
             messages=[
                 {"role": "system", "content": agent_persona},
                 {"role": "user", "content": final_prompt}
@@ -162,7 +164,8 @@ async def analyze_environment(
         )
         final_report = text_response.choices[0].message.content
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Text generation model timeout or internal error.")
+        print(f"\n🚨 ERROR REAL DEL MODELO DE TEXTO: {str(e)}\n")
+        raise HTTPException(status_code=500, detail=f"Error de API Texto: {str(e)}")
 
     # 5. Return final payload
     return {
