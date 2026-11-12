@@ -17,26 +17,24 @@ app = FastAPI(title="AI Visual Explorer - Nebius Hackathon")
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Initialize Nebius AI client with a strict timeout to prevent hanging requests
+# Initialize Nebius AI client
 nebius_client = OpenAI(
     base_url="https://api.tokenfactory.nebius.com/v1",
     api_key=os.environ.get("NEBIUS_API_KEY"),
-    timeout=75.0
+    timeout=60.0
 )
 
 def extract_clean_text(message) -> str:
-    """Safely extracts text from reasoning models, handling None content and <think> tags."""
+    """Safely extracts text from reasoning models, removing <think> tags."""
     content = getattr(message, "content", None)
     if not content:
-        # Fallback if the model placed text inside reasoning_content
         content = getattr(message, "reasoning_content", "") or ""
     
-    # Remove <think>...</think> blocks if the reasoning model includes them in the output
     cleaned = re.sub(r"<think>.*?</think>", "", str(content), flags=re.DOTALL).strip()
     return cleaned if cleaned else str(content).strip()
 
 def get_tavily_context(query: str) -> str:
-    """Retrieves real-time context from the Tavily search API."""
+    """Retrieves real-time context from the Tavily search API with fast timeout."""
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
         return "No real-time internet connection available."
@@ -49,13 +47,14 @@ def get_tavily_context(query: str) -> str:
         "max_results": 1
     }
     try:
-        response = requests.post(url, json=payload, timeout=10.0)
+        # Fast 5-second timeout so web search never bottlenecks the LLM
+        response = requests.post(url, json=payload, timeout=5.0)
         response.raise_for_status()
         results = response.json().get("results", [])
         context = " ".join([res.get("content", "") for res in results])
-        return context if context else "No recent relevant results found."
+        return context[:800] if context else "No recent relevant results found."
     except Exception as e:
-        return f"Error retrieving data: {str(e)}"
+        return f"Context unavailable: {str(e)}"
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
@@ -73,7 +72,7 @@ async def analyze_environment(
     idioma: str = Form(...),
     ubicacion: str = Form(default="Ubicación desconocida")
 ):
-    """Core AI Agent workflow: Vision Analysis -> Web Context -> LLM Synthesis."""
+    """Core AI Agent workflow optimized for low latency."""
     
     # 1. Process image file into Base64 format in memory
     try:
@@ -83,20 +82,19 @@ async def analyze_environment(
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to process the uploaded image.")
 
-    # 2. Vision Processing (nvidia/Nemotron-3.5-Super-VL)
+    # 2. Fast Vision Processing (detailed thinking off)
     vision_prompt = (
-        "Eres un experto en análisis visual. Tu tarea es identificar el sujeto principal de esta imagen. "
-        "REGLA 1: Si la imagen está demasiado borrosa, oscura, cortada, o no hay un sujeto claramente identificable, "
-        "responde ÚNICAMENTE con la frase exacta: 'IMAGEN_NO_RECONOCIDA'. "
-        "REGLA 2: Si puedes identificarlo, responde en una sola frase corta y precisa con el nombre más exacto que deduzcas "
-        "(fíjate muy bien en detalles estructurales para no confundir especies o estilos similares). "
-        "REGLA 3: No des explicaciones, solo la frase corta o la palabra de error."
+        "Identifica el sujeto principal de esta imagen. "
+        "REGLA 1: Si está borrosa, oscura o no hay sujeto claro, responde SOLO: 'IMAGEN_NO_RECONOCIDA'. "
+        "REGLA 2: Si lo identificas, responde ÚNICAMENTE con el nombre común y científico en máximo 8 palabras. "
+        "REGLA 3: Cero explicaciones adicionales."
     )
     
     try:
         vision_response = nebius_client.chat.completions.create(
             model="nvidia/Nemotron-3.5-Super-VL",
             messages=[
+                {"role": "system", "content": "detailed thinking off"},
                 {
                     "role": "user",
                     "content": [
@@ -106,7 +104,7 @@ async def analyze_environment(
                 }
             ],
             temperature=0.1,
-            max_tokens=600  # Increased to allow internal reasoning tokens + final answer
+            max_tokens=200
         )
         raw_diagnosis = extract_clean_text(vision_response.choices[0].message)
         if not raw_diagnosis:
@@ -115,7 +113,7 @@ async def analyze_environment(
         print(f"\n🚨 ERROR REAL DEL MODELO VISUAL: {str(e)}\n")
         raise HTTPException(status_code=500, detail=f"Error de API Visual: {str(e)}")
 
-    # Stability Patch: Fast circuit breaker for unrecognized images
+    # Fast circuit breaker for unrecognized images
     if "IMAGEN_NO_RECONOCIDA" in raw_diagnosis or "no reconocida" in raw_diagnosis.lower():
         fallback_messages = {
             "es": "¡Vaya! 😅 No logro distinguir bien el sujeto principal. ¿Podrías intentar con una foto más clara?",
@@ -130,37 +128,37 @@ async def analyze_environment(
         }
 
     # 3. Context Retrieval (Tavily Agent)
-    tavily_query = f"{raw_diagnosis} en {ubicacion} contexto actual, historia o noticias"
+    tavily_query = f"{raw_diagnosis} {ubicacion}"
     web_context = get_tavily_context(tavily_query)
 
-    # 4. LLM Synthesis
+    # 4. Fast LLM Synthesis (detailed thinking off + strict length cap)
     mode_prompts = {
         "educativo": (
-            "Eres un científico y educador riguroso pero accesible. "
-            "Tu objetivo es enseñar. Usa una estructura clara con títulos en Markdown (###), viñetas y datos precisos "
-            "sobre taxonomía, mecanismos físicos o historia. Mantén un tono académico pero fascinante. Usa emojis científicos (🔬, 🧬, 📊)."
+            "detailed thinking off\n"
+            "Eres un científico y educador conciso. Usa títulos en Markdown (###), viñetas cortas y datos precisos "
+            "sobre taxonomía o historia. Usa emojis científicos (🔬, 🧬, 📊)."
         ),
         "turistico": (
-            "Eres el mejor guía turístico del mundo, carismático y entretenido. "
-            "Tu objetivo es maravillar al usuario. Cuenta historias locales, mitos, datos curiosos y tips. "
-            "Usa títulos en Markdown (###), viñetas y emojis de viaje (✈️, 🗺️, 📸). Mantén un tono cálido y emocionante."
+            "detailed thinking off\n"
+            "Eres un guía turístico carismático y directo. Cuenta datos curiosos e historia local en viñetas cortas. "
+            "Usa títulos en Markdown (###) y emojis de viaje (✈️, 🗺️, 📸)."
         ),
         "explorador": (
-            "Eres un aventurero y experto en cultura y geografía universal. "
-            "Tu objetivo es conectar el sujeto con el vasto mundo. Habla de su entorno geográfico e importancia cultural global. "
-            "Usa títulos en Markdown (###), viñetas y emojis de aventura (🧭, 🌍, 🏕️). Mantén un tono épico e inspirador."
+            "detailed thinking off\n"
+            "Eres un aventurero experto en geografía. Conecta el sujeto con su entorno e importancia cultural en viñetas cortas. "
+            "Usa títulos en Markdown (###) y emojis de aventura (🧭, 🌍, 🏕️)."
         )
     }
     agent_persona = mode_prompts.get(modo, mode_prompts["explorador"])
 
     final_prompt = (
-        f"UBICACIÓN DEL USUARIO: {ubicacion}\n"
-        f"ANÁLISIS VISUAL PREVIO: {raw_diagnosis}\n"
-        f"CONTEXTO EN TIEMPO REAL (Tavily): {web_context}\n\n"
-        f"INSTRUCCIÓN ESTRATÉGICA:\n"
-        f"1. Redacta un reporte fascinante estructurado en exactamente 3 secciones usando "
-        f"formato Markdown (títulos y listas). Aplica estrictamente tu personalidad asignada.\n"
-        f"2. OBLIGATORIO: Tu respuesta completa debe estar redactada estrictamente en el idioma: {idioma}. No uses otro idioma."
+        f"UBICACIÓN: {ubicacion}\n"
+        f"SUJETO IDENTIFICADO: {raw_diagnosis}\n"
+        f"CONTEXTO WEB: {web_context}\n\n"
+        f"INSTRUCCIÓN:\n"
+        f"1. Redacta un reporte ágil dividido en 3 secciones breves con Markdown (###).\n"
+        f"2. LÍMITE DE LONGITUD: Máximo 180 palabras en total. Ve directo al grano sin introducciones largas.\n"
+        f"3. IDIOMA OBLIGATORIO: Responde estrictamente en '{idioma}'."
     )
 
     try:
@@ -171,19 +169,19 @@ async def analyze_environment(
                     {"role": "system", "content": agent_persona},
                     {"role": "user", "content": final_prompt}
                 ],
-                temperature=0.4,
-                max_tokens=1500
+                temperature=0.3,
+                max_tokens=600
             )
-        except Exception:
-            # Automatic fallback to Super-VL if Lightning model ID differs
+        except Exception as e_light:
+            print(f"⚠️ Aviso: Lightning falló ({e_light}), usando Super-VL como respaldo.")
             text_response = nebius_client.chat.completions.create(
                 model="nvidia/Nemotron-3.5-Super-VL",
                 messages=[
                     {"role": "system", "content": agent_persona},
                     {"role": "user", "content": final_prompt}
                 ],
-                temperature=0.4,
-                max_tokens=1500
+                temperature=0.3,
+                max_tokens=600
             )
         final_report = extract_clean_text(text_response.choices[0].message)
     except Exception as e:
