@@ -21,17 +21,44 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 nebius_client = OpenAI(
     base_url="https://api.tokenfactory.nebius.com/v1",
     api_key=os.environ.get("NEBIUS_API_KEY"),
-    timeout=60.0
+    timeout=65.0
 )
 
 def extract_clean_text(message) -> str:
-    """Safely extracts text from reasoning models, removing <think> tags."""
+    """Extrae el texto limpio eliminando bloques <think> incluso si falta la etiqueta de apertura."""
     content = getattr(message, "content", None)
     if not content:
         content = getattr(message, "reasoning_content", "") or ""
     
-    cleaned = re.sub(r"<think>.*?</think>", "", str(content), flags=re.DOTALL).strip()
-    return cleaned if cleaned else str(content).strip()
+    text = str(content)
+    # 1. Si el modelo cerró con </think>, descartar todo lo anterior
+    if "</think>" in text:
+        text = text.split("</think>")[-1]
+    
+    # 2. Eliminar cualquier bloque <think>...</think> restante
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    return text
+
+def clean_vision_diagnosis(text: str) -> str:
+    """Se queda únicamente con la última línea limpia del diagnóstico visual."""
+    if not text:
+        return "IMAGEN_NO_RECONOCIDA"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1].strip("*_ \"'") if lines else "IMAGEN_NO_RECONOCIDA"
+
+def clean_final_report(text: str) -> str:
+    """Elimina cualquier borrador en inglés previo al primer encabezado Markdown (### o ##)."""
+    if not text:
+        return ""
+    # Busca el primer encabezado Markdown (## o ###) y corta todo el borrador previo
+    match = re.search(r"(^|\n)(#{1,3}\s+)", text)
+    if match:
+        return text[match.start(2):].strip()
+    
+    # Respaldo por si el modelo escribió "Let's draft:" sin usar ###
+    if "Let's draft:" in text:
+        return text.split("Let's draft:")[-1].strip()
+    return text.strip()
 
 def get_tavily_context(query: str) -> str:
     """Retrieves real-time context from the Tavily search API with fast timeout."""
@@ -47,7 +74,6 @@ def get_tavily_context(query: str) -> str:
         "max_results": 1
     }
     try:
-        # Fast 5-second timeout so web search never bottlenecks the LLM
         response = requests.post(url, json=payload, timeout=5.0)
         response.raise_for_status()
         results = response.json().get("results", [])
@@ -72,7 +98,7 @@ async def analyze_environment(
     idioma: str = Form(...),
     ubicacion: str = Form(default="Ubicación desconocida")
 ):
-    """Core AI Agent workflow optimized for low latency."""
+    """Core AI Agent workflow optimized for low latency and clean output."""
     
     # 1. Process image file into Base64 format in memory
     try:
@@ -82,7 +108,7 @@ async def analyze_environment(
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to process the uploaded image.")
 
-    # 2. Fast Vision Processing (detailed thinking off)
+    # 2. Fast Vision Processing
     vision_prompt = (
         "Identifica el sujeto principal de esta imagen. "
         "REGLA 1: Si está borrosa, oscura o no hay sujeto claro, responde SOLO: 'IMAGEN_NO_RECONOCIDA'. "
@@ -104,11 +130,10 @@ async def analyze_environment(
                 }
             ],
             temperature=0.1,
-            max_tokens=200
+            max_tokens=250
         )
-        raw_diagnosis = extract_clean_text(vision_response.choices[0].message)
-        if not raw_diagnosis:
-            raw_diagnosis = "IMAGEN_NO_RECONOCIDA"
+        raw_text = extract_clean_text(vision_response.choices[0].message)
+        raw_diagnosis = clean_vision_diagnosis(raw_text)
     except Exception as e:
         print(f"\n🚨 ERROR REAL DEL MODELO VISUAL: {str(e)}\n")
         raise HTTPException(status_code=500, detail=f"Error de API Visual: {str(e)}")
@@ -131,22 +156,22 @@ async def analyze_environment(
     tavily_query = f"{raw_diagnosis} {ubicacion}"
     web_context = get_tavily_context(tavily_query)
 
-    # 4. Fast LLM Synthesis (detailed thinking off + strict length cap)
+    # 4. Fast LLM Synthesis
     mode_prompts = {
         "educativo": (
             "detailed thinking off\n"
-            "Eres un científico y educador conciso. Usa títulos en Markdown (###), viñetas cortas y datos precisos "
-            "sobre taxonomía o historia. Usa emojis científicos (🔬, 🧬, 📊)."
+            "Eres un científico y educador conciso. Empieza tu respuesta DIRECTAMENTE con un título ### sin introducción. "
+            "Usa viñetas cortas, datos precisos sobre taxonomía o historia, y emojis científicos (🔬, 🧬, 📊)."
         ),
         "turistico": (
             "detailed thinking off\n"
-            "Eres un guía turístico carismático y directo. Cuenta datos curiosos e historia local en viñetas cortas. "
-            "Usa títulos en Markdown (###) y emojis de viaje (✈️, 🗺️, 📸)."
+            "Eres un guía turístico carismático y directo. Empieza tu respuesta DIRECTAMENTE con un título ### sin introducción. "
+            "Cuenta datos curiosos e historia local en viñetas cortas con emojis de viaje (✈️, 🗺️, 📸)."
         ),
         "explorador": (
             "detailed thinking off\n"
-            "Eres un aventurero experto en geografía. Conecta el sujeto con su entorno e importancia cultural en viñetas cortas. "
-            "Usa títulos en Markdown (###) y emojis de aventura (🧭, 🌍, 🏕️)."
+            "Eres un aventurero experto en geografía. Empieza tu respuesta DIRECTAMENTE con un título ### sin introducción. "
+            "Conecta el sujeto con su entorno e importancia cultural en viñetas cortas con emojis de aventura (🧭, 🌍, 🏕️)."
         )
     }
     agent_persona = mode_prompts.get(modo, mode_prompts["explorador"])
@@ -156,9 +181,10 @@ async def analyze_environment(
         f"SUJETO IDENTIFICADO: {raw_diagnosis}\n"
         f"CONTEXTO WEB: {web_context}\n\n"
         f"INSTRUCCIÓN:\n"
-        f"1. Redacta un reporte ágil dividido en 3 secciones breves con Markdown (###).\n"
-        f"2. LÍMITE DE LONGITUD: Máximo 180 palabras en total. Ve directo al grano sin introducciones largas.\n"
-        f"3. IDIOMA OBLIGATORIO: Responde estrictamente en '{idioma}'."
+        f"1. Empieza DIRECTAMENTE con el primer encabezado '### '. Prohibido incluir borradores o introducciones.\n"
+        f"2. Redacta un reporte ágil dividido en 3 secciones breves con Markdown (###).\n"
+        f"3. LÍMITE DE LONGITUD: Máximo 180 palabras en total.\n"
+        f"4. IDIOMA OBLIGATORIO: Responde estrictamente en '{idioma}'."
     )
 
     try:
@@ -170,10 +196,9 @@ async def analyze_environment(
                     {"role": "user", "content": final_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=600
+                max_tokens=850
             )
-        except Exception as e_light:
-            print(f"⚠️ Aviso: Lightning falló ({e_light}), usando Super-VL como respaldo.")
+        except Exception:
             text_response = nebius_client.chat.completions.create(
                 model="nvidia/Nemotron-3.5-Super-VL",
                 messages=[
@@ -181,9 +206,10 @@ async def analyze_environment(
                     {"role": "user", "content": final_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=600
+                max_tokens=850
             )
-        final_report = extract_clean_text(text_response.choices[0].message)
+        raw_report = extract_clean_text(text_response.choices[0].message)
+        final_report = clean_final_report(raw_report)
     except Exception as e:
         print(f"\n🚨 ERROR REAL DEL MODELO DE TEXTO: {str(e)}\n")
         raise HTTPException(status_code=500, detail=f"Error de API Texto: {str(e)}")
